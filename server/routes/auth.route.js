@@ -1,12 +1,11 @@
 const express = require("express")
-const { registerUser, loginUser } = require("../controllers/auth.controller")
 const router = express.Router()
+const { registerUser, loginUser } = require("../controllers/auth.controller")
 const authMiddleware = require("../middleware/auth")
 const User = require("../models/User.model")
 const upload = require("../middleware/upload");
 const fs = require("fs");
 const path = require("path");
-
 
 
 
@@ -156,4 +155,3 @@ router.post(
 
 
 module.exports = router
-

@@ -53,9 +53,10 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 connectDB();
 
 // Routes
-app.use("/api/auth", authroute);
+app.use("/api/auth", authroute);    
 app.use("/api/chat", chatRoutes);
 app.use("/api/chat/group", groupRoutes);
+
 
 // Make io accessible to routes
 app.set("io", io);
@@ -207,3 +208,8 @@ server.listen(listenPort, () => {
 });
 
 module.exports = server;
+
+
+
+
+
