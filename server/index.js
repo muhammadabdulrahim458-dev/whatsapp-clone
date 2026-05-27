@@ -53,10 +53,9 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 connectDB();
 
 // Routes
-app.use("/api/auth", authroute);    
+app.use("/api/auth", authroute);
 app.use("/api/chat", chatRoutes);
 app.use("/api/chat/group", groupRoutes);
-
 
 // Make io accessible to routes
 app.set("io", io);
@@ -93,7 +92,6 @@ io.on("connection", async (socket) => {
   // 1) Send current online users list to the newly connected socket
   const onlineUsers = await User.find({ isOnline: true }).select("_id");
   const onlineIds = onlineUsers.map((u) => u._id.toString());
-  console.log("📡 Emitting onlineUsers to", socket.user.username, onlineIds);
   socket.emit("onlineUsers", onlineIds);
 
   // 2) Broadcast to all OTHER users that this user is now online
@@ -105,18 +103,13 @@ io.on("connection", async (socket) => {
   // 3) Handle request for online list (client may have missed initial emit)
   socket.on("requestOnlineUsers", async () => {
     const freshOnlineUsers = await User.find({ isOnline: true }).select("_id");
-    socket.emit(
-      "onlineUsers",
-      freshOnlineUsers.map((u) => u._id.toString()),
-    );
+    socket.emit("onlineUsers", freshOnlineUsers.map((u) => u._id.toString()));
   });
 
   // Join a specific conversation room (when user opens a chat)
   socket.on("joinConversation", (conversationId) => {
     socket.join(conversationId);
-    console.log(
-      `${socket.user.username} joined conversation ${conversationId}`,
-    );
+    console.log(`${socket.user.username} joined conversation ${conversationId}`);
   });
 
   // Leave a conversation room
@@ -124,7 +117,7 @@ io.on("connection", async (socket) => {
     socket.leave(conversationId);
   });
 
-  // Send a message in real-time
+  // Send a text message
   socket.on("sendMessage", async (data, callback) => {
     try {
       const { conversationId, text } = data;
@@ -133,10 +126,7 @@ io.on("connection", async (socket) => {
       }
 
       const conversation = await Conversation.findById(conversationId);
-      if (
-        !conversation ||
-        !conversation.participants.includes(socket.user._id)
-      ) {
+      if (!conversation || !conversation.participants.includes(socket.user._id)) {
         return callback({ error: "Not a participant" });
       }
 
@@ -154,16 +144,13 @@ io.on("connection", async (socket) => {
         sentiment: { score, label },
       });
 
-      const populatedMessage = await message.populate(
-        "sender",
-        "username email avatar",
-      );
+      const populatedMessage = await message.populate("sender", "username email avatar");
 
       // Update lastMessage
       conversation.lastMessage = message._id;
       await conversation.save();
 
-      // ✅ Emit ONLY to the conversation room → no duplicate
+      // Emit ONLY to the conversation room
       io.to(conversationId.toString()).emit("newMessage", populatedMessage);
 
       callback({ success: true, message: populatedMessage });
@@ -172,20 +159,56 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // Typing indicator (with missing conversationId fixed)
+  // ========== NEW: Send file message (uploaded via REST, then socket) ==========
+  socket.on("sendFileMessage", async (data, callback) => {
+    try {
+      const { conversationId, fileUrl, fileType, fileName } = data;
+      if (!conversationId || !fileUrl) {
+        return callback({ error: "Missing fields" });
+      }
+
+      const conversation = await Conversation.findById(conversationId);
+      if (!conversation || !conversation.participants.includes(socket.user._id)) {
+        return callback({ error: "Not a participant" });
+      }
+
+      const message = await Message.create({
+        sender: socket.user._id,
+        conversation: conversationId,
+        text: "",
+        fileUrl,
+        fileType,
+        fileName,
+        sentiment: { score: 0, label: "neutral" },
+      });
+
+      const populatedMessage = await message.populate("sender", "username email avatar");
+
+      conversation.lastMessage = message._id;
+      await conversation.save();
+
+      io.to(conversationId.toString()).emit("newMessage", populatedMessage);
+
+      callback({ success: true, message: populatedMessage });
+    } catch (error) {
+      console.error("sendFileMessage error:", error);
+      callback({ error: error.message });
+    }
+  });
+
+  // Typing indicator
   socket.on("typing", (conversationId) => {
-    console.log(`⌨️ ${socket.user.username} typing in ${conversationId}`);
     socket.to(conversationId).emit("userTyping", {
       userId: socket.user._id,
       username: socket.user.username,
-      conversationId, // ✅ ADDED
+      conversationId,
     });
   });
 
   socket.on("stopTyping", (conversationId) => {
     socket.to(conversationId).emit("userStopTyping", {
       userId: socket.user._id,
-      conversationId, // ✅ ADDED
+      conversationId,
     });
   });
 
@@ -208,8 +231,3 @@ server.listen(listenPort, () => {
 });
 
 module.exports = server;
-
-
-
-
-

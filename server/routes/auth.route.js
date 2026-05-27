@@ -1,62 +1,51 @@
-const express = require("express")
-const router = express.Router()
-const { registerUser, loginUser } = require("../controllers/auth.controller")
-const authMiddleware = require("../middleware/auth")
-const User = require("../models/User.model")
+const express = require("express");
+const router = express.Router();
+const { registerUser, loginUser } = require("../controllers/auth.controller");
+const authMiddleware = require("../middleware/auth");
+const User = require("../models/User.model");
 const upload = require("../middleware/upload");
 const fs = require("fs");
 const path = require("path");
 
-
-
-
-
-
-
-router.post('/register', registerUser)   // http://localhost:5000/api/auth/register
-router.post('/login', loginUser)         // http://localhost:5000/api/auth/login
+router.post("/register", registerUser); // http://localhost:5000/api/auth/register
+router.post("/login", loginUser); // http://localhost:5000/api/auth/login
 
 // @route   GET /api/auth/me
-router.get('/me', authMiddleware, async (req, res) => {
-    res.json({ success: true, user: req.user });
+router.get("/me", authMiddleware, async (req, res) => {
+  res.json({ success: true, user: req.user });
 });
-
-
-
 
 // @route   GET /api/auth/search?q=john
 // @desc    Search users (for starting new chats)
-router.get('/search', authMiddleware, async (req, res) => {
-    try {
-        const query = req.query.q;
-        if (!query) {
-            return res.status(400).json({ success: false, message: 'Search query required' });
-        }
-
-        const users = await User.find({
-            $and: [
-                { _id: { $ne: req.user._id } },               // exclude self
-                {
-                    $or: [
-                        { username: { $regex: query, $options: 'i' } },
-                        { email: { $regex: query, $options: 'i' } }
-                    ]
-                }
-            ]
-        })
-            .select('-password')
-            .limit(10);
-
-        res.json({ success: true, data: users });
-    } catch (error) {
-        console.error('SEARCH ERROR:', error);
-        res.status(500).json({ success: false, message: error.message });
+router.get("/search", authMiddleware, async (req, res) => {
+  try {
+    const query = req.query.q;
+    if (!query) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Search query required" });
     }
+
+    const users = await User.find({
+      $and: [
+        { _id: { $ne: req.user._id } },
+        {
+          $or: [
+            { username: { $regex: `^${query}$`, $options: "i" } },
+            { email: { $regex: `^${query}$`, $options: "i" } },
+          ],
+        },
+      ],
+    })
+      .select("-password")
+      .limit(10);
+
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error("SEARCH ERROR:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
-
-
-
-
 
 // @route   PUT /api/auth/profile
 // @desc    Update username / email / password
@@ -98,12 +87,10 @@ router.put("/profile", authMiddleware, async (req, res) => {
           .status(401)
           .json({ success: false, message: "Current password is incorrect" });
       if (newPassword.length < 6)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Password must be at least 6 characters",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 6 characters",
+        });
       user.password = newPassword;
     }
 
@@ -152,6 +139,4 @@ router.post(
   },
 );
 
-
-
-module.exports = router
+module.exports = router;
