@@ -9,7 +9,7 @@ async function registerUser(req, res) {
     try {
 
         const { username, email, password } = req.body;
-
+        
         // Check existing user
         const existingUser = await User.findOne({ email });
 
