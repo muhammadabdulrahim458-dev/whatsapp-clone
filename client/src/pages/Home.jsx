@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../hooks/useSocket';
 import Sidebar from '../components/Sidebar';
@@ -14,9 +14,8 @@ const Home = () => {
   const [typingUsers, setTypingUsers] = useState({});
   
   const socket = useSocket(token);
-  const forwardingLock = useRef(false); // prevent duplicate on forward
 
-  // Listen for typing events
+  // Typing events
   useEffect(() => {
     if (!socket) return;
     socket.on("userTyping", ({ userId, username, conversationId }) => {
@@ -35,7 +34,7 @@ const Home = () => {
     };
   }, [socket]);
 
-  // Socket Debugging
+  // Socket debugging
   useEffect(() => {
     console.log('🔌 Socket object:', socket ? 'present' : 'null');
     if (socket) {
@@ -44,7 +43,7 @@ const Home = () => {
     }
   }, [socket]);
   
-  // Fetch Conversations On Mount
+  // Fetch conversations on mount
   useEffect(() => {
     fetchConversations();
   }, []);
@@ -65,7 +64,7 @@ const Home = () => {
     }
   };
 
-  // Fetch Messages + Join Room
+  // Fetch messages and join room when conversation changes
   useEffect(() => {
     if (!activeConversation) return;
     console.log('🟢 Active conversation:', activeConversation._id);
@@ -76,7 +75,7 @@ const Home = () => {
     }
   }, [activeConversation, socket]);
 
-  // Listen for online status updates
+  // Online status
   useEffect(() => {
     if (!socket) return;
     const handleConnect = () => {
@@ -118,7 +117,7 @@ const Home = () => {
     }
   };
 
-  // Socket Listeners
+  // Socket listeners
   useEffect(() => {
     if (!socket) {
       console.log('⚠️ Socket not ready');
@@ -127,33 +126,28 @@ const Home = () => {
 
     console.log('👂 Setting up listeners');
 
-    // New Message
     const handleNewMessage = (message) => {
       console.log('📩 newMessage received:', message._id, 'conversation:', message.conversation);
-      
-      // Only add message if it belongs to the currently active conversation
       if (activeConversation && message.conversation === activeConversation._id) {
         setMessages((prev) => {
           const exists = prev.some((msg) => msg._id === message._id);
-          if (exists) {
-            console.log('⏩ Duplicate message skipped');
-            return prev;
-          }
+          if (exists) return prev;
           return [...prev, message];
         });
-      } else {
-        console.log('⏩ Message ignored (different conversation)');
       }
-      fetchConversations(); // update sidebar last message
+      // Update sidebar last message
+      setConversations(prev =>
+        prev.map(conv =>
+          conv._id === message.conversation ? { ...conv, lastMessage: message } : conv
+        )
+      );
     };
 
-    // New Conversation
-    const handleNewConversation = () => {
+    const handleNewConversation = (newConv) => {
       console.log('🆕 newConversation received');
-      fetchConversations();
+      setConversations(prev => [newConv, ...prev]);
     };
 
-    // Message Deleted
     const handleMessageDeleted = ({ messageId, conversationId }) => {
       console.log('🗑️ Message deleted:', messageId);
       if (activeConversation?._id === conversationId) {
@@ -161,10 +155,51 @@ const Home = () => {
       }
     };
 
-    // Chat Cleared
     const handleChatCleared = ({ conversationId }) => {
-      console.log('🧹 Chat cleared:', conversationId);
+      console.log('🧹 Chat cleared locally:', conversationId);
       if (activeConversation?._id === conversationId) {
+        setMessages([]);
+      }
+      setConversations(prev =>
+        prev.map(conv =>
+          conv._id === conversationId ? { ...conv, lastMessage: null } : conv
+        )
+      );
+    };
+
+    const handleGroupUpdated = (updatedGroup) => {
+      console.log('👥 Group updated:', updatedGroup._id);
+      setConversations(prev =>
+        prev.map(conv => conv._id === updatedGroup._id ? updatedGroup : conv)
+      );
+      if (activeConversation?._id === updatedGroup._id) {
+        setActiveConversation(updatedGroup);
+      }
+    };
+
+    const handleGroupDeleted = (groupId) => {
+      console.log('💀 Group deleted:', groupId);
+      setConversations(prev => prev.filter(conv => conv._id !== groupId));
+      if (activeConversation?._id === groupId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    };
+
+    const handleConversationRemoved = ({ conversationId }) => {
+      console.log('🗑️ Conversation removed:', conversationId);
+      setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    };
+
+    const handleParticipantLeft = ({ conversationId, userId }) => {
+      console.log('🚪 Participant left private chat:', conversationId, userId);
+      setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
         setMessages([]);
       }
     };
@@ -173,6 +208,10 @@ const Home = () => {
     socket.on('newConversation', handleNewConversation);
     socket.on('messageDeleted', handleMessageDeleted);
     socket.on('chatCleared', handleChatCleared);
+    socket.on('groupUpdated', handleGroupUpdated);
+    socket.on('groupDeleted', handleGroupDeleted);
+    socket.on('conversationRemoved', handleConversationRemoved);
+    socket.on('participantLeft', handleParticipantLeft);
 
     socket.onAny((eventName, ...args) => {
       console.log('📨 Event:', eventName, args);
@@ -184,11 +223,14 @@ const Home = () => {
       socket.off('newConversation', handleNewConversation);
       socket.off('messageDeleted', handleMessageDeleted);
       socket.off('chatCleared', handleChatCleared);
+      socket.off('groupUpdated', handleGroupUpdated);
+      socket.off('groupDeleted', handleGroupDeleted);
+      socket.off('conversationRemoved', handleConversationRemoved);
+      socket.off('participantLeft', handleParticipantLeft);
       socket.offAny();
     };
   }, [socket, activeConversation]);
 
-  // Send Message
   const sendMessage = (text) => {
     console.log('📤 Sending message:', text);
     if (!socket) {

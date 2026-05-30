@@ -51,7 +51,8 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // DB connection
 connectDB();
-
+// Reset all users to offline on server start (to fix stale status)
+User.updateMany({}, { isOnline: false }).exec().catch(console.error);
 // Routes
 app.use("/api/auth", authroute);
 app.use("/api/chat", chatRoutes);

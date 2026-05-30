@@ -46,6 +46,20 @@ const ChatArea = ({
   const [partner, setPartner] = useState(null);
   const [partnerOnline, setPartnerOnline] = useState(false);
 
+  // Ref for message dropdown (to detect outside clicks)
+  const messageMenuRef = useRef(null);
+
+  // Close message dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (messageMenuRef.current && !messageMenuRef.current.contains(event.target)) {
+        setOpenDropdownMsgId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   useEffect(() => {
     if (conversation) {
       const isGroup = conversation.isGroup;
@@ -60,7 +74,7 @@ const ChatArea = ({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Cleanup typing timeout (FIXED)
+  // Cleanup typing timeout
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
@@ -476,8 +490,8 @@ const ChatArea = ({
                     </div>
                   </div>
 
-                  {/* Dropdown menu button */}
-                  <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition">
+                  {/* Dropdown menu button with outside-click detection */}
+                  <div ref={messageMenuRef} className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
