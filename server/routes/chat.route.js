@@ -1,42 +1,31 @@
+// server/routes/chat.route.js
 const express = require("express");
-const mongoose = require("mongoose");
 const authMiddleware = require("../middleware/auth");
-const Conversation = require("../models/Conversation.model");
-const Message = require("../models/Message.model");
-const User = require("../models/User.model");
-const UserConversationState = require("../models/UserConversationState.model");
+const ConversationRepository = require("../repositories/conversation.repository");
+const MessageRepository = require("../repositories/message.repository");
+const UserConversationStateRepository = require("../repositories/userConversationState.repository");
+const UserRepository = require("../repositories/user.repository");
 const Sentiment = require("sentiment");
 const sentiment = new Sentiment();
+const uploadChat = require("../middleware/uploadChat");
 
 const router = express.Router();
 
-const userExists = async (userId) => {
-  const user = await User.findById(userId).select("_id");
-  return !!user;
-};
+const getIO = (req) => req.app.get("io");
 
 // ==================== CONVERSATIONS ====================
+
 router.get("/conversations", authMiddleware, async (req, res) => {
   try {
-    const conversations = await Conversation.find({
-      participants: req.user._id,
-    })
-      .populate("participants", "username email avatar")
-      .populate("lastMessage")
-      .sort({ updatedAt: -1 });
-
+    const conversations = await ConversationRepository.findUserConversations(req.user._id);
     const convWithState = await Promise.all(conversations.map(async (conv) => {
-      const state = await UserConversationState.findOne({
-        user: req.user._id,
-        conversation: conv._id
-      });
+      const state = await UserConversationStateRepository.getState(req.user._id, conv._id);
       if (state?.deletedAt) return null;
       return {
         ...conv.toObject(),
         clearedAt: state?.clearedAt || null,
       };
     }));
-
     const filtered = convWithState.filter(c => c !== null);
     res.json({ success: true, data: filtered });
   } catch (error) {
@@ -55,33 +44,21 @@ router.post("/conversations", authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: "Cannot create conversation with yourself" });
     }
 
-    const participantExists = await userExists(participantId);
+    const participantExists = await UserRepository.findById(participantId);
     if (!participantExists) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    let conversation = await Conversation.findOne({
-      isGroup: false,
-      participants: { $all: [req.user._id, participantId] },
-    }).populate("participants", "username email avatar");
-
+    let conversation = await ConversationRepository.findOnePrivateConversation(req.user._id, participantId);
     if (conversation) {
-      await UserConversationState.updateOne(
-        { user: req.user._id, conversation: conversation._id },
-        { $set: { deletedAt: null } },
-        { upsert: true }
-      );
+      // Re-add contact: remove deletedAt flag for this user
+      await UserConversationStateRepository.removeDeleted(req.user._id, conversation._id);
       return res.json({ success: true, data: conversation });
     }
 
-    conversation = await Conversation.create({
-      participants: [req.user._id, participantId],
-    });
-    conversation = await conversation.populate("participants", "username email avatar");
-
-    const io = req.app.get("io");
+    conversation = await ConversationRepository.createPrivateConversation([req.user._id, participantId]);
+    const io = getIO(req);
     io.to(participantId.toString()).emit("newConversation", conversation);
-
     res.status(201).json({ success: true, data: conversation });
   } catch (error) {
     console.error(error);
@@ -99,27 +76,18 @@ router.post("/conversations/group", authMiddleware, async (req, res) => {
       });
     }
     const uniqueParticipantIds = [...new Set([req.user._id.toString(), ...participants])];
-    const existingUsers = await User.find({ _id: { $in: uniqueParticipantIds } }).select("_id");
-    const existingIds = existingUsers.map((u) => u._id.toString());
-    const invalidIds = uniqueParticipantIds.filter((id) => !existingIds.includes(id));
-    if (invalidIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid participant IDs: ${invalidIds.join(", ")}`,
-      });
+    const existingUsers = await Promise.all(uniqueParticipantIds.map(id => UserRepository.findById(id)));
+    const existingIds = existingUsers.filter(u => u !== null).map(u => u._id.toString());
+    if (existingIds.length !== uniqueParticipantIds.length) {
+      return res.status(400).json({ success: false, message: "One or more participants invalid" });
     }
-    const conversation = await Conversation.create({
-      participants: existingIds,
-      isGroup: true,
-      groupName: name,
-      groupAdmin: req.user._id,
-    });
-    const fullConversation = await conversation.populate("participants", "username email avatar");
-    const io = req.app.get("io");
+
+    const conversation = await ConversationRepository.createGroupConversation(existingIds, name, req.user._id);
+    const io = getIO(req);
     existingIds.forEach((userId) => {
-      io.to(userId.toString()).emit("newConversation", fullConversation);
+      io.to(userId.toString()).emit("newConversation", conversation);
     });
-    res.status(201).json({ success: true, data: fullConversation });
+    res.status(201).json({ success: true, data: conversation });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -127,29 +95,19 @@ router.post("/conversations/group", authMiddleware, async (req, res) => {
 });
 
 // ==================== MESSAGES ====================
+
 router.get("/conversations/:id/messages", authMiddleware, async (req, res) => {
   try {
     const conversationId = req.params.id;
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-    if (!conversation.participants.includes(req.user._id)) {
+    const isParticipant = await ConversationRepository.checkUserInConversation(conversationId, req.user._id);
+    if (!isParticipant) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
-    const state = await UserConversationState.findOne({
-      user: req.user._id,
-      conversation: conversationId
-    });
+    const state = await UserConversationStateRepository.getState(req.user._id, conversationId);
     const clearedAt = state?.clearedAt || null;
-    let query = { conversation: conversationId };
-    if (clearedAt) {
-      query.createdAt = { $gt: clearedAt };
-    }
-    const messages = await Message.find(query)
-      .populate("sender", "username email avatar")
-      .sort({ createdAt: 1 });
+    const options = clearedAt ? { afterDate: clearedAt } : {};
+    const messages = await MessageRepository.findByConversation(conversationId, options);
     res.json({ success: true, data: messages });
   } catch (error) {
     console.error(error);
@@ -164,12 +122,10 @@ router.post("/conversations/:id/messages", authMiddleware, async (req, res) => {
     if (!text || text.trim() === "") {
       return res.status(400).json({ success: false, message: "Message text cannot be empty" });
     }
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-    if (!conversation.participants.includes(req.user._id)) {
-      return res.status(403).json({ success: false, message: "Access denied" });
+
+    const conversation = await ConversationRepository.findById(conversationId);
+    if (!conversation || !conversation.participants.includes(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Not a participant" });
     }
 
     const result = sentiment.analyze(text.trim());
@@ -178,31 +134,27 @@ router.post("/conversations/:id/messages", authMiddleware, async (req, res) => {
     if (score > 0.2) label = "positive";
     else if (score < -0.2) label = "negative";
 
-    const message = await Message.create({
+    const message = await MessageRepository.create({
       sender: req.user._id,
       conversation: conversationId,
       text: text.trim(),
       sentiment: { score, label },
     });
-    const populatedMessage = await message.populate("sender", "username email avatar");
 
-    conversation.lastMessage = message._id;
-    await conversation.save();
-
-    const io = req.app.get("io");
+    await ConversationRepository.updateLastMessage(conversationId, message._id);
+    const io = getIO(req);
     conversation.participants.forEach((participantId) => {
-      io.to(participantId.toString()).emit("newMessage", populatedMessage);
+      io.to(participantId.toString()).emit("newMessage", message);
     });
 
-    res.status(201).json({ success: true, data: populatedMessage });
+    res.status(201).json({ success: true, data: message });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// File upload
-const uploadChat = require("../middleware/uploadChat");
+// File upload (unchanged)
 router.post("/upload", authMiddleware, uploadChat.single("file"), async (req, res) => {
   try {
     if (!req.file) {
@@ -226,21 +178,20 @@ router.post("/upload", authMiddleware, uploadChat.single("file"), async (req, re
 // Delete message
 router.delete("/messages/:id", authMiddleware, async (req, res) => {
   try {
-    const messageId = req.params.id;
-    const message = await Message.findById(messageId);
+    const message = await MessageRepository.findById(req.params.id);
     if (!message) {
       return res.status(404).json({ success: false, message: "Message not found" });
     }
-    if (message.sender.toString() !== req.user._id.toString()) {
+    if (message.sender._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: "Not authorized" });
     }
-    await message.deleteOne();
-    const conversation = await Conversation.findById(message.conversation);
+    await MessageRepository.deleteById(message._id);
+    const conversation = await ConversationRepository.findById(message.conversation);
     if (conversation) {
-      const io = req.app.get("io");
+      const io = getIO(req);
       conversation.participants.forEach((participantId) => {
         io.to(participantId.toString()).emit("messageDeleted", {
-          messageId,
+          messageId: message._id,
           conversationId: conversation._id,
         });
       });
@@ -254,23 +205,22 @@ router.delete("/messages/:id", authMiddleware, async (req, res) => {
 // Forward message
 router.post("/messages/:id/forward", authMiddleware, async (req, res) => {
   try {
-    const messageId = req.params.id;
+    const originalMessage = await MessageRepository.findById(req.params.id);
+    if (!originalMessage) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
     const { targetConversationId } = req.body;
     if (!targetConversationId) {
       return res.status(400).json({ success: false, message: "Target conversation ID required" });
     }
-    const originalMessage = await Message.findById(messageId);
-    if (!originalMessage) {
-      return res.status(404).json({ success: false, message: "Message not found" });
-    }
     if (originalMessage.conversation.toString() === targetConversationId) {
       return res.status(400).json({ success: false, message: "Cannot forward to same conversation" });
     }
-    const targetConv = await Conversation.findById(targetConversationId);
+    const targetConv = await ConversationRepository.findById(targetConversationId);
     if (!targetConv || !targetConv.participants.includes(req.user._id)) {
       return res.status(403).json({ success: false, message: "Not a participant of target conversation" });
     }
-    const forwardedMessage = await Message.create({
+    const forwardedMessage = await MessageRepository.create({
       sender: req.user._id,
       conversation: targetConversationId,
       text: originalMessage.text,
@@ -280,14 +230,12 @@ router.post("/messages/:id/forward", authMiddleware, async (req, res) => {
       isForwarded: true,
       sentiment: { score: 0, label: "neutral" },
     });
-    const populated = await forwardedMessage.populate("sender", "username email avatar");
-    targetConv.lastMessage = forwardedMessage._id;
-    await targetConv.save();
-    const io = req.app.get("io");
+    await ConversationRepository.updateLastMessage(targetConversationId, forwardedMessage._id);
+    const io = getIO(req);
     targetConv.participants.forEach((pid) => {
-      io.to(pid.toString()).emit("newMessage", populated);
+      io.to(pid.toString()).emit("newMessage", forwardedMessage);
     });
-    res.json({ success: true, data: populated });
+    res.json({ success: true, data: forwardedMessage });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -298,23 +246,13 @@ router.post("/messages/:id/forward", authMiddleware, async (req, res) => {
 router.delete("/conversations/:id/messages", authMiddleware, async (req, res) => {
   try {
     const conversationId = req.params.id;
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-    if (!conversation.participants.includes(req.user._id)) {
+    const isParticipant = await ConversationRepository.checkUserInConversation(conversationId, req.user._id);
+    if (!isParticipant) {
       return res.status(403).json({ success: false, message: "Not a participant" });
     }
-
-    await UserConversationState.findOneAndUpdate(
-      { user: req.user._id, conversation: conversationId },
-      { clearedAt: new Date() },
-      { upsert: true, new: true }
-    );
-
-    const io = req.app.get("io");
+    await UserConversationStateRepository.setCleared(req.user._id, conversationId);
+    const io = getIO(req);
     io.to(req.user._id.toString()).emit("chatCleared", { conversationId });
-
     res.json({ success: true, message: "Chat cleared for you" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -325,23 +263,16 @@ router.delete("/conversations/:id/messages", authMiddleware, async (req, res) =>
 router.delete("/conversations/:id/contact", authMiddleware, async (req, res) => {
   try {
     const conversationId = req.params.id;
-    const conversation = await Conversation.findById(conversationId);
+    const conversation = await ConversationRepository.findById(conversationId);
     if (!conversation || conversation.isGroup) {
       return res.status(404).json({ success: false, message: "Conversation not found or is a group" });
     }
     if (!conversation.participants.includes(req.user._id)) {
       return res.status(403).json({ success: false, message: "Not a participant" });
     }
-
-    await UserConversationState.findOneAndUpdate(
-      { user: req.user._id, conversation: conversationId },
-      { deletedAt: new Date(), clearedAt: new Date() },
-      { upsert: true, new: true }
-    );
-
-    const io = req.app.get("io");
+    await UserConversationStateRepository.setDeleted(req.user._id, conversationId);
+    const io = getIO(req);
     io.to(req.user._id.toString()).emit("conversationRemoved", { conversationId });
-
     res.json({ success: true, message: "Contact deleted and chat cleared" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
