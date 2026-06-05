@@ -47,17 +47,22 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    deletedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   {
     timestamps: true,
-    // Add custom validation: either text or fileUrl must exist
     validate: {
       validator: function (doc) {
         return !(!doc.text && !doc.fileUrl);
       },
       message: "Message must have either text or fileUrl",
     },
-  },
+  }
 );
 
 module.exports = mongoose.model("Message", messageSchema);

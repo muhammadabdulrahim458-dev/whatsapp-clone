@@ -112,3 +112,5 @@ router.post("/avatar", authMiddleware, upload.single("avatar"), async (req, res)
 });
 
 module.exports = router;
+
+

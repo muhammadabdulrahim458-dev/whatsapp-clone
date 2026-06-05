@@ -1,5 +1,6 @@
-import { contextBridge } from 'electron';
-// Expose a safe API to the renderer (we'll expand later)
+import { contextBridge, ipcRenderer } from 'electron'
+
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
-});
+  showNotification: (title, body) => ipcRenderer.send('show-notification', { title, body }),
+})

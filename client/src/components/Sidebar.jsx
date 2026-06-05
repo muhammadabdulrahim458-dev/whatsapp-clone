@@ -10,6 +10,7 @@ const Sidebar = ({
   activeConversation,
   setActiveConversation,
   refreshConversations,
+  unreadCounts = {},
 }) => {
   const { user, token, logout } = useAuth();
   const [showModal, setShowModal] = useState(false);
@@ -88,6 +89,7 @@ const Sidebar = ({
         : lastMsg.text || "File";
     }
     const isActive = activeConversation?._id === conv._id;
+    const unreadCount = unreadCounts[conv._id] || 0;
 
     return (
       <div
@@ -99,8 +101,12 @@ const Sidebar = ({
       >
         <div className="relative flex-shrink-0">
           <img src={avatarSrc} alt={name} className="w-12 h-12 rounded-full object-cover" />
-          {/* Gray dot (no unread functionality) */}
-          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white bg-gray-400" />
+          {/* Blue dot for unread messages, gray for read */}
+          <span
+            className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+              unreadCount > 0 ? "bg-blue-500" : "bg-gray-400"
+            }`}
+          />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-baseline">
@@ -150,18 +156,18 @@ const Sidebar = ({
             <span className="font-semibold text-gray-800">{user?.username}</span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowModal(true)} className="bg-gray-200 hover:bg-gray-300 p-2 rounded-full" title="New chat">
+            <button onClick={() => setShowModal(true)} className="bg-gray-200 hover:bg-gray-300 p-2 rounded-full">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-gray-700">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <button onClick={() => navigate("/settings")} className="bg-gray-200 hover:bg-gray-300 p-2 rounded-full" title="Settings">
+            <button onClick={() => navigate("/settings")} className="bg-gray-200 hover:bg-gray-300 p-2 rounded-full">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-gray-700">
                 <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
               </svg>
             </button>
-            <button onClick={logout} className="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50" title="Logout">
+            <button onClick={logout} className="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                 <polyline points="16 17 21 12 16 7" />

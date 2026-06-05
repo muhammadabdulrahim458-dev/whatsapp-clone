@@ -1,16 +1,6 @@
-// server/repositories/userConversationState.repository.js
 const UserConversationState = require('../models/UserConversationState.model');
 
 class UserConversationStateRepository {
-  async findOrCreate(userId, conversationId) {
-    let state = await UserConversationState.findOne({ user: userId, conversation: conversationId });
-    if (!state) {
-      state = new UserConversationState({ user: userId, conversation: conversationId });
-      await state.save();
-    }
-    return state;
-  }
-
   async getState(userId, conversationId) {
     return await UserConversationState.findOne({ user: userId, conversation: conversationId });
   }
@@ -18,7 +8,7 @@ class UserConversationStateRepository {
   async setCleared(userId, conversationId, clearedAt = new Date()) {
     return await UserConversationState.findOneAndUpdate(
       { user: userId, conversation: conversationId },
-      { clearedAt, deletedAt: null }, // also undelete if it was deleted
+      { clearedAt, unreadCount: 0, deletedAt: null },
       { upsert: true, new: true }
     );
   }
@@ -35,6 +25,22 @@ class UserConversationStateRepository {
     return await UserConversationState.findOneAndUpdate(
       { user: userId, conversation: conversationId },
       { deletedAt: null },
+      { upsert: true, new: true }
+    );
+  }
+
+  async incrementUnread(userId, conversationId) {
+    return await UserConversationState.findOneAndUpdate(
+      { user: userId, conversation: conversationId },
+      { $inc: { unreadCount: 1 } },
+      { upsert: true, new: true }
+    );
+  }
+
+  async resetUnread(userId, conversationId) {
+    return await UserConversationState.findOneAndUpdate(
+      { user: userId, conversation: conversationId },
+      { unreadCount: 0 },
       { upsert: true, new: true }
     );
   }

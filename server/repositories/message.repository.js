@@ -11,12 +11,25 @@ class MessageRepository {
     return await Message.findById(id).populate('sender', 'username email avatar');
   }
 
-  async findByConversation(conversationId, options = {}) {
+  async findByConversation(conversationId, options = {}, userId = null) {
     let query = Message.find({ conversation: conversationId });
     if (options.afterDate) {
       query = query.where('createdAt').gt(options.afterDate);
     }
+    if (userId) {
+      query = query.where('deletedBy').nin([userId]);
+    }
     return await query.populate('sender', 'username email avatar').sort({ createdAt: 1 });
+  }
+
+  async softDeleteForUser(messageId, userId) {
+    const message = await Message.findById(messageId);
+    if (!message) return null;
+    if (!message.deletedBy.includes(userId)) {
+      message.deletedBy.push(userId);
+      await message.save();
+    }
+    return message;
   }
 
   async deleteById(id) {

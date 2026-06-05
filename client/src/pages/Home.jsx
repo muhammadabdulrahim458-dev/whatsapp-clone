@@ -5,13 +5,14 @@ import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 
 const Home = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [typingUsers, setTypingUsers] = useState({});
+  const [unreadCounts, setUnreadCounts] = useState({});
   
   const socket = useSocket(token);
 
@@ -34,7 +35,6 @@ const Home = () => {
     };
   }, [socket]);
 
-  // Socket debugging
   useEffect(() => {
     console.log('🔌 Socket object:', socket ? 'present' : 'null');
     if (socket) {
@@ -50,36 +50,47 @@ const Home = () => {
 
   const fetchConversations = async () => {
     try {
-      console.log('📋 Fetching conversations...');
       const res = await fetch('http://localhost:5000/api/chat/conversations', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      console.log('📋 Conversations response:', data);
       if (data.success) {
-        setConversations(data.data);
+        const sorted = data.data.sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        setConversations(sorted);
+        // Load unread counts from server
+        const counts = {};
+        sorted.forEach(conv => {
+          if (conv.unreadCount && conv.unreadCount > 0) {
+            counts[conv._id] = conv.unreadCount;
+          }
+        });
+        setUnreadCounts(counts);
       }
     } catch (err) {
       console.error('❌ fetchConversations error:', err);
     }
   };
 
-  // Fetch messages and join room when conversation changes
+  // When active conversation changes
   useEffect(() => {
     if (!activeConversation) return;
-    console.log('🟢 Active conversation:', activeConversation._id);
     fetchMessages(activeConversation._id);
     if (socket) {
-      console.log('🟢 Joining conversation:', activeConversation._id);
       socket.emit('joinConversation', activeConversation._id);
     }
+    // Reset unread count on backend
+    fetch(`http://localhost:5000/api/chat/conversations/${activeConversation._id}/read`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(console.error);
+    // Reset local unread count
+    setUnreadCounts(prev => ({ ...prev, [activeConversation._id]: 0 }));
   }, [activeConversation, socket]);
 
   // Online status
   useEffect(() => {
     if (!socket) return;
     const handleConnect = () => {
-      console.log('🔁 socket connected - requesting fresh online users');
       socket.emit('getOnlineUsers');
     };
     socket.on('connect', handleConnect);
@@ -103,12 +114,10 @@ const Home = () => {
   
   const fetchMessages = async (conversationId) => {
     try {
-      console.log('💬 Fetching messages:', conversationId);
       const res = await fetch(`http://localhost:5000/api/chat/conversations/${conversationId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      console.log('💬 Messages response:', data);
       if (data.success) {
         setMessages(data.data);
       }
@@ -119,44 +128,57 @@ const Home = () => {
 
   // Socket listeners
   useEffect(() => {
-    if (!socket) {
-      console.log('⚠️ Socket not ready');
-      return;
-    }
-
-    console.log('👂 Setting up listeners');
+    if (!socket) return;
 
     const handleNewMessage = (message) => {
       console.log('📩 newMessage received:', message._id, 'conversation:', message.conversation);
+      
+      // Desktop notification (Electron only)
+      if (message.sender._id !== user._id && window.electronAPI && window.electronAPI.showNotification) {
+        const senderName = message.sender.username;
+        const conversationName = message.conversationName || '';
+        const title = conversationName ? `${senderName} (${conversationName})` : senderName;
+        const preview = message.text ? message.text.substring(0, 50) : '📎 File';
+        window.electronAPI.showNotification(title, preview);
+      }
+      
+      // Update messages if active conversation
       if (activeConversation && message.conversation === activeConversation._id) {
-        setMessages((prev) => {
-          const exists = prev.some((msg) => msg._id === message._id);
-          if (exists) return prev;
+        setMessages(prev => {
+          if (prev.some(m => m._id === message._id)) return prev;
           return [...prev, message];
         });
+        setUnreadCounts(prev => ({ ...prev, [message.conversation]: 0 }));
+      } else {
+        setUnreadCounts(prev => ({
+          ...prev,
+          [message.conversation]: (prev[message.conversation] || 0) + 1,
+        }));
       }
-      // Update sidebar last message
-      setConversations(prev =>
-        prev.map(conv =>
-          conv._id === message.conversation ? { ...conv, lastMessage: message } : conv
-        )
-      );
+      
+      // Update conversation list
+      setConversations(prev => {
+        const updated = prev.map(conv =>
+          conv._id === message.conversation
+            ? { ...conv, lastMessage: message, updatedAt: message.createdAt }
+            : conv
+        );
+        updated.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        return [...updated];
+      });
     };
 
     const handleNewConversation = (newConv) => {
-      console.log('🆕 newConversation received');
       setConversations(prev => [newConv, ...prev]);
     };
 
-    const handleMessageDeleted = ({ messageId, conversationId }) => {
-      console.log('🗑️ Message deleted:', messageId);
+    const handleMessageDeletedForMe = ({ messageId, conversationId }) => {
       if (activeConversation?._id === conversationId) {
-        setMessages((prev) => prev.filter((m) => m._id !== messageId));
+        setMessages(prev => prev.filter(m => m._id !== messageId));
       }
     };
 
     const handleChatCleared = ({ conversationId }) => {
-      console.log('🧹 Chat cleared locally:', conversationId);
       if (activeConversation?._id === conversationId) {
         setMessages([]);
       }
@@ -168,7 +190,6 @@ const Home = () => {
     };
 
     const handleGroupUpdated = (updatedGroup) => {
-      console.log('👥 Group updated:', updatedGroup._id);
       setConversations(prev =>
         prev.map(conv => conv._id === updatedGroup._id ? updatedGroup : conv)
       );
@@ -178,7 +199,6 @@ const Home = () => {
     };
 
     const handleGroupDeleted = (groupId) => {
-      console.log('💀 Group deleted:', groupId);
       setConversations(prev => prev.filter(conv => conv._id !== groupId));
       if (activeConversation?._id === groupId) {
         setActiveConversation(null);
@@ -187,7 +207,6 @@ const Home = () => {
     };
 
     const handleConversationRemoved = ({ conversationId }) => {
-      console.log('🗑️ Conversation removed:', conversationId);
       setConversations(prev => prev.filter(conv => conv._id !== conversationId));
       if (activeConversation?._id === conversationId) {
         setActiveConversation(null);
@@ -196,7 +215,6 @@ const Home = () => {
     };
 
     const handleParticipantLeft = ({ conversationId, userId }) => {
-      console.log('🚪 Participant left private chat:', conversationId, userId);
       setConversations(prev => prev.filter(conv => conv._id !== conversationId));
       if (activeConversation?._id === conversationId) {
         setActiveConversation(null);
@@ -206,52 +224,32 @@ const Home = () => {
 
     socket.on('newMessage', handleNewMessage);
     socket.on('newConversation', handleNewConversation);
-    socket.on('messageDeleted', handleMessageDeleted);
+    socket.on('messageDeletedForMe', handleMessageDeletedForMe);
     socket.on('chatCleared', handleChatCleared);
     socket.on('groupUpdated', handleGroupUpdated);
     socket.on('groupDeleted', handleGroupDeleted);
     socket.on('conversationRemoved', handleConversationRemoved);
     socket.on('participantLeft', handleParticipantLeft);
 
-    socket.onAny((eventName, ...args) => {
-      console.log('📨 Event:', eventName, args);
-    });
-
     return () => {
-      console.log('🗑️ Cleaning listeners');
       socket.off('newMessage', handleNewMessage);
       socket.off('newConversation', handleNewConversation);
-      socket.off('messageDeleted', handleMessageDeleted);
+      socket.off('messageDeletedForMe', handleMessageDeletedForMe);
       socket.off('chatCleared', handleChatCleared);
       socket.off('groupUpdated', handleGroupUpdated);
       socket.off('groupDeleted', handleGroupDeleted);
       socket.off('conversationRemoved', handleConversationRemoved);
       socket.off('participantLeft', handleParticipantLeft);
-      socket.offAny();
     };
-  }, [socket, activeConversation]);
+  }, [socket, activeConversation, user]);
 
   const sendMessage = (text) => {
-    console.log('📤 Sending message:', text);
-    if (!socket) {
-      console.error('❌ Socket not available');
-      return;
-    }
-    if (!activeConversation) {
-      console.error('❌ No active conversation');
-      return;
-    }
-    const payload = {
+    if (!socket || !activeConversation) return;
+    socket.emit('sendMessage', {
       conversationId: activeConversation._id,
       text,
-    };
-    socket.emit('sendMessage', payload, (response) => {
-      console.log('📤 Server response:', response);
-      if (response?.error) {
-        console.error('❌ Send failed:', response.error);
-      } else {
-        console.log('✅ Message sent');
-      }
+    }, (response) => {
+      if (response?.error) console.error('❌ Send failed:', response.error);
     });
   };
 
@@ -262,6 +260,7 @@ const Home = () => {
         activeConversation={activeConversation}
         setActiveConversation={setActiveConversation}
         refreshConversations={fetchConversations}
+        unreadCounts={unreadCounts}
       />
       <ChatArea
         conversation={activeConversation}
