@@ -5,29 +5,23 @@ import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 
 const Home = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const [typingUsers, setTypingUsers] = useState({}); // { [conversationId]: { userId, username } }
+  const [typingUsers, setTypingUsers] = useState({});
+  const [unreadCounts, setUnreadCounts] = useState({});
   
   const socket = useSocket(token);
 
-
-
-  // Listen for typing events
+  // Typing events
   useEffect(() => {
     if (!socket) return;
-
     socket.on("userTyping", ({ userId, username, conversationId }) => {
-      setTypingUsers((prev) => ({
-        ...prev,
-        [conversationId]: { userId, username },
-      }));
+      setTypingUsers((prev) => ({ ...prev, [conversationId]: { userId, username } }));
     });
-
     socket.on("userStopTyping", ({ conversationId }) => {
       setTypingUsers((prev) => {
         const next = { ...prev };
@@ -35,93 +29,74 @@ const Home = () => {
         return next;
       });
     });
-
     return () => {
       socket.off("userTyping");
       socket.off("userStopTyping");
     };
   }, [socket]);
 
-  
-  
-  // ==============================
-  // Socket Debugging
-  // ==============================
   useEffect(() => {
     console.log('🔌 Socket object:', socket ? 'present' : 'null');
-
     if (socket) {
       console.log('🔌 Connected:', socket.connected);
       console.log('🔌 Socket ID:', socket.id);
     }
   }, [socket]);
   
-  // ==============================
-  // Fetch Conversations On Mount
-  // ==============================
+  // Fetch conversations on mount
   useEffect(() => {
     fetchConversations();
   }, []);
 
   const fetchConversations = async () => {
     try {
-      console.log('📋 Fetching conversations...');
-
-      const res = await fetch(
-        'http://localhost:5000/api/chat/conversations',
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
+      const res = await fetch('http://localhost:5000/api/chat/conversations', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
-
-      console.log('📋 Conversations response:', data);
-
       if (data.success) {
-        setConversations(data.data);
+        const sorted = data.data.sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        setConversations(sorted);
+        // Load unread counts from server
+        const counts = {};
+        sorted.forEach(conv => {
+          if (conv.unreadCount && conv.unreadCount > 0) {
+            counts[conv._id] = conv.unreadCount;
+          }
+        });
+        setUnreadCounts(counts);
       }
     } catch (err) {
       console.error('❌ fetchConversations error:', err);
     }
   };
 
-  // ==============================
-  // Fetch Messages + Join Room
-  // ==============================
+  // When active conversation changes
   useEffect(() => {
     if (!activeConversation) return;
-
-    console.log(
-      '🟢 Active conversation:',
-      activeConversation._id
-    );
-
     fetchMessages(activeConversation._id);
-
     if (socket) {
-      console.log(
-        '🟢 Joining conversation:',
-        activeConversation._id
-      );
-
-      socket.emit(
-        'joinConversation',
-        activeConversation._id
-      );
+      socket.emit('joinConversation', activeConversation._id);
     }
+    // Reset unread count on backend
+    fetch(`http://localhost:5000/api/chat/conversations/${activeConversation._id}/read`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(console.error);
+    // Reset local unread count
+    setUnreadCounts(prev => ({ ...prev, [activeConversation._id]: 0 }));
   }, [activeConversation, socket]);
 
-  // Listen for online status updates
+  // Online status
   useEffect(() => {
     if (!socket) return;
-
+    const handleConnect = () => {
+      socket.emit('getOnlineUsers');
+    };
+    socket.on('connect', handleConnect);
     socket.on("onlineUsers", (list) => {
       setOnlineUsers(new Set(list));
     });
-
     socket.on("userStatus", ({ userId, isOnline }) => {
       setOnlineUsers((prev) => {
         const next = new Set(prev);
@@ -130,8 +105,8 @@ const Home = () => {
         return next;
       });
     });
-
     return () => {
+      socket.off('connect', handleConnect);
       socket.off("onlineUsers");
       socket.off("userStatus");
     };
@@ -139,24 +114,10 @@ const Home = () => {
   
   const fetchMessages = async (conversationId) => {
     try {
-      console.log(
-        '💬 Fetching messages:',
-        conversationId
-      );
-
-      const res = await fetch(
-        `http://localhost:5000/api/chat/conversations/${conversationId}/messages`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
+      const res = await fetch(`http://localhost:5000/api/chat/conversations/${conversationId}/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
-
-      console.log('💬 Messages response:', data);
-
       if (data.success) {
         setMessages(data.data);
       }
@@ -165,121 +126,131 @@ const Home = () => {
     }
   };
 
-  // ==============================
-  // Socket Listeners
-  // ==============================
+  // Socket listeners
   useEffect(() => {
-    if (!socket) {
-      console.log('⚠️ Socket not ready');
-      return;
-    }
+    if (!socket) return;
 
-    console.log('👂 Setting up listeners');
-
-    // New Message
     const handleNewMessage = (message) => {
-      console.log(
-        '📩 newMessage received:',
-        message._id
-      );
-
-      setMessages((prev) => {
-        const exists = prev.some(
-          (msg) => msg._id === message._id
+      console.log('📩 newMessage received:', message._id, 'conversation:', message.conversation);
+      
+      // Desktop notification (Electron only)
+      if (message.sender._id !== user._id && window.electronAPI && window.electronAPI.showNotification) {
+        const senderName = message.sender.username;
+        const conversationName = message.conversationName || '';
+        const title = conversationName ? `${senderName} (${conversationName})` : senderName;
+        const preview = message.text ? message.text.substring(0, 50) : '📎 File';
+        window.electronAPI.showNotification(title, preview);
+      }
+      
+      // Update messages if active conversation
+      if (activeConversation && message.conversation === activeConversation._id) {
+        setMessages(prev => {
+          if (prev.some(m => m._id === message._id)) return prev;
+          return [...prev, message];
+        });
+        setUnreadCounts(prev => ({ ...prev, [message.conversation]: 0 }));
+      } else {
+        setUnreadCounts(prev => ({
+          ...prev,
+          [message.conversation]: (prev[message.conversation] || 0) + 1,
+        }));
+      }
+      
+      // Update conversation list
+      setConversations(prev => {
+        const updated = prev.map(conv =>
+          conv._id === message.conversation
+            ? { ...conv, lastMessage: message, updatedAt: message.createdAt }
+            : conv
         );
-
-        if (exists) {
-          console.log(
-            '⏩ Duplicate message skipped'
-          );
-          return prev;
-        }
-
-        return [...prev, message];
+        updated.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        return [...updated];
       });
-
-      fetchConversations();
     };
 
-    // New Conversation
-    const handleNewConversation = () => {
-      console.log('🆕 newConversation received');
-      fetchConversations();
+    const handleNewConversation = (newConv) => {
+      setConversations(prev => [newConv, ...prev]);
+    };
+
+    const handleMessageDeletedForMe = ({ messageId, conversationId }) => {
+      if (activeConversation?._id === conversationId) {
+        setMessages(prev => prev.filter(m => m._id !== messageId));
+      }
+    };
+
+    const handleChatCleared = ({ conversationId }) => {
+      if (activeConversation?._id === conversationId) {
+        setMessages([]);
+      }
+      setConversations(prev =>
+        prev.map(conv =>
+          conv._id === conversationId ? { ...conv, lastMessage: null } : conv
+        )
+      );
+    };
+
+    const handleGroupUpdated = (updatedGroup) => {
+      setConversations(prev =>
+        prev.map(conv => conv._id === updatedGroup._id ? updatedGroup : conv)
+      );
+      if (activeConversation?._id === updatedGroup._id) {
+        setActiveConversation(updatedGroup);
+      }
+    };
+
+    const handleGroupDeleted = (groupId) => {
+      setConversations(prev => prev.filter(conv => conv._id !== groupId));
+      if (activeConversation?._id === groupId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    };
+
+    const handleConversationRemoved = ({ conversationId }) => {
+      setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    };
+
+    const handleParticipantLeft = ({ conversationId, userId }) => {
+      setConversations(prev => prev.filter(conv => conv._id !== conversationId));
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
     };
 
     socket.on('newMessage', handleNewMessage);
-
-    socket.on(
-      'newConversation',
-      handleNewConversation
-    );
-
-    // Debug all events
-    socket.onAny((eventName, ...args) => {
-      console.log(
-        '📨 Event:',
-        eventName,
-        args
-      );
-    });
+    socket.on('newConversation', handleNewConversation);
+    socket.on('messageDeletedForMe', handleMessageDeletedForMe);
+    socket.on('chatCleared', handleChatCleared);
+    socket.on('groupUpdated', handleGroupUpdated);
+    socket.on('groupDeleted', handleGroupDeleted);
+    socket.on('conversationRemoved', handleConversationRemoved);
+    socket.on('participantLeft', handleParticipantLeft);
 
     return () => {
-      console.log('🗑️ Cleaning listeners');
-
-      socket.off(
-        'newMessage',
-        handleNewMessage
-      );
-
-      socket.off(
-        'newConversation',
-        handleNewConversation
-      );
-
-      socket.offAny();
+      socket.off('newMessage', handleNewMessage);
+      socket.off('newConversation', handleNewConversation);
+      socket.off('messageDeletedForMe', handleMessageDeletedForMe);
+      socket.off('chatCleared', handleChatCleared);
+      socket.off('groupUpdated', handleGroupUpdated);
+      socket.off('groupDeleted', handleGroupDeleted);
+      socket.off('conversationRemoved', handleConversationRemoved);
+      socket.off('participantLeft', handleParticipantLeft);
     };
-  }, [socket]);
+  }, [socket, activeConversation, user]);
 
-  // ==============================
-  // Send Message
-  // ==============================
   const sendMessage = (text) => {
-    console.log('📤 Sending message:', text);
-
-    if (!socket) {
-      console.error('❌ Socket not available');
-      return;
-    }
-
-    if (!activeConversation) {
-      console.error('❌ No active conversation');
-      return;
-    }
-
-    const payload = {
+    if (!socket || !activeConversation) return;
+    socket.emit('sendMessage', {
       conversationId: activeConversation._id,
       text,
-    };
-
-    socket.emit(
-      'sendMessage',
-      payload,
-      (response) => {
-        console.log(
-          '📤 Server response:',
-          response
-        );
-
-        if (response?.error) {
-          console.error(
-            '❌ Send failed:',
-            response.error
-          );
-        } else {
-          console.log('✅ Message sent');
-        }
-      }
-    );
+    }, (response) => {
+      if (response?.error) console.error('❌ Send failed:', response.error);
+    });
   };
 
   return (
@@ -289,14 +260,14 @@ const Home = () => {
         activeConversation={activeConversation}
         setActiveConversation={setActiveConversation}
         refreshConversations={fetchConversations}
+        unreadCounts={unreadCounts}
       />
-
       <ChatArea
         conversation={activeConversation}
         messages={messages}
         sendMessage={sendMessage}
         onlineUsers={onlineUsers}
-        typingUser={typingUsers[activeConversation?._id] || null} // only active conv
+        typingUser={typingUsers[activeConversation?._id] || null}
         socket={socket}
       />
     </div>

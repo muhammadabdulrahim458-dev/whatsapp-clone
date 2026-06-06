@@ -14,7 +14,20 @@ const messageSchema = new mongoose.Schema(
     },
     text: {
       type: String,
-      required: true,
+      default: "",
+    },
+    fileUrl: {
+      type: String,
+      default: null,
+    },
+    fileType: {
+      type: String,
+      enum: ["image", "video", "audio", "document"],
+      default: null,
+    },
+    fileName: {
+      type: String,
+      default: null,
     },
     readBy: [
       {
@@ -23,15 +36,33 @@ const messageSchema = new mongoose.Schema(
       },
     ],
     sentiment: {
-      score: Number, // e.g. 2, -1, 0
+      score: Number,
       label: {
-        // 'positive', 'negative', 'neutral'
         type: String,
         enum: ["positive", "negative", "neutral"],
+        default: "neutral",
       },
     },
+    isForwarded: {
+      type: Boolean,
+      default: false,
+    },
+    deletedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+    validate: {
+      validator: function (doc) {
+        return !(!doc.text && !doc.fileUrl);
+      },
+      message: "Message must have either text or fileUrl",
+    },
+  }
 );
 
 module.exports = mongoose.model("Message", messageSchema);

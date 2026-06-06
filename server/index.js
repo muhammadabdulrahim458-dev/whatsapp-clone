@@ -17,31 +17,24 @@ const sentiment = new Sentiment();
 const path = require("path");
 const groupRoutes = require("./routes/group.route");
 
-// Validate critical config
 if (!JWT_SECRET) {
   console.error("FATAL ERROR: JWT_SECRET is not defined.");
   process.exit(1);
 }
 if (!PORT) {
   console.warn("PORT not defined, defaulting to 5000");
-  const PORT_FALLBACK = 5000;
 }
-
 console.log("JWT_SECRET:", JWT_SECRET ? "Loaded" : "MISSING");
 
-// Initialize express
 const app = express();
-
-// Create the server using the express app
 const server = http.createServer(app);
 const io = socketio(server, {
   cors: {
-    origin: "*", // restrict in production
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
 
-// Middlewares
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -49,31 +42,21 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// DB connection
 connectDB();
+User.updateMany({}, { isOnline: false }).exec().catch(console.error);
 
-// Routes
 app.use("/api/auth", authroute);
 app.use("/api/chat", chatRoutes);
 app.use("/api/chat/group", groupRoutes);
-
-// Make io accessible to routes
 app.set("io", io);
 
-// ------------- Socket.io Authentication Middleware -------------
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth.token;
-    if (!token) {
-      return next(new Error("Authentication error: no token"));
-    }
-
+    if (!token) return next(new Error("Authentication error: no token"));
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.id).select("-password");
-    if (!user) {
-      return next(new Error("Authentication error: user not found"));
-    }
-
+    if (!user) return next(new Error("Authentication error: user not found"));
     socket.user = user;
     next();
   } catch (error) {
@@ -82,64 +65,37 @@ io.use(async (socket, next) => {
   }
 });
 
-// ------------- Socket.io Connection Handling -------------
 io.on("connection", async (socket) => {
   console.log(`User connected: ${socket.user.username}`);
-
   socket.join(socket.user._id.toString());
   await User.findByIdAndUpdate(socket.user._id, { isOnline: true }).exec();
 
-  // 1) Send current online users list to the newly connected socket
   const onlineUsers = await User.find({ isOnline: true }).select("_id");
-  const onlineIds = onlineUsers.map((u) => u._id.toString());
-  console.log("📡 Emitting onlineUsers to", socket.user.username, onlineIds);
-  socket.emit("onlineUsers", onlineIds);
-
-  // 2) Broadcast to all OTHER users that this user is now online
+  socket.emit("onlineUsers", onlineUsers.map(u => u._id.toString()));
   socket.broadcast.emit("userStatus", {
     userId: socket.user._id.toString(),
     isOnline: true,
   });
 
-  // 3) Handle request for online list (client may have missed initial emit)
   socket.on("requestOnlineUsers", async () => {
-    const freshOnlineUsers = await User.find({ isOnline: true }).select("_id");
-    socket.emit(
-      "onlineUsers",
-      freshOnlineUsers.map((u) => u._id.toString()),
-    );
+    const fresh = await User.find({ isOnline: true }).select("_id");
+    socket.emit("onlineUsers", fresh.map(u => u._id.toString()));
   });
 
-  // Join a specific conversation room (when user opens a chat)
   socket.on("joinConversation", (conversationId) => {
     socket.join(conversationId);
-    console.log(
-      `${socket.user.username} joined conversation ${conversationId}`,
-    );
+    console.log(`${socket.user.username} joined conversation ${conversationId}`);
   });
+  socket.on("leaveConversation", (conversationId) => socket.leave(conversationId));
 
-  // Leave a conversation room
-  socket.on("leaveConversation", (conversationId) => {
-    socket.leave(conversationId);
-  });
-
-  // Send a message in real-time
   socket.on("sendMessage", async (data, callback) => {
     try {
       const { conversationId, text } = data;
-      if (!text || !conversationId) {
-        return callback({ error: "Missing fields" });
-      }
-
+      if (!text || !conversationId) return callback({ error: "Missing fields" });
       const conversation = await Conversation.findById(conversationId);
-      if (
-        !conversation ||
-        !conversation.participants.includes(socket.user._id)
-      ) {
+      if (!conversation || !conversation.participants.includes(socket.user._id)) {
         return callback({ error: "Not a participant" });
       }
-
-      // Analyze sentiment
       const result = sentiment.analyze(text);
       const score = result.comparative;
       let label = "neutral";
@@ -152,47 +108,85 @@ io.on("connection", async (socket) => {
         text,
         sentiment: { score, label },
       });
+      const populatedMessage = await message.populate("sender", "username email avatar");
+      
+      // Add conversation name for notifications
+      let conversationName = "";
+      if (conversation.isGroup) {
+        conversationName = conversation.groupName;
+      } else {
+        const otherUserId = conversation.participants.find(pid => pid.toString() !== socket.user._id.toString());
+        const otherUser = otherUserId ? await User.findById(otherUserId).select("username") : null;
+        conversationName = otherUser?.username || "Unknown";
+      }
+      populatedMessage.conversationName = conversationName;
 
-      const populatedMessage = await message.populate(
-        "sender",
-        "username email avatar",
-      );
-
-      // Update lastMessage
       conversation.lastMessage = message._id;
       await conversation.save();
-
-      // ✅ Emit ONLY to the conversation room → no duplicate
       io.to(conversationId.toString()).emit("newMessage", populatedMessage);
-
       callback({ success: true, message: populatedMessage });
     } catch (error) {
       callback({ error: error.message });
     }
   });
 
-  // Typing indicator (with missing conversationId fixed)
+  socket.on("sendFileMessage", async (data, callback) => {
+    try {
+      const { conversationId, fileUrl, fileType, fileName, text } = data;
+      if (!conversationId || !fileUrl) return callback({ error: "Missing fields" });
+      const conversation = await Conversation.findById(conversationId);
+      if (!conversation || !conversation.participants.includes(socket.user._id)) {
+        return callback({ error: "Not a participant" });
+      }
+      const message = await Message.create({
+        sender: socket.user._id,
+        conversation: conversationId,
+        text: text || "",
+        fileUrl,
+        fileType,
+        fileName,
+        sentiment: { score: 0, label: "neutral" },
+      });
+      const populatedMessage = await message.populate("sender", "username email avatar");
+      
+      // Add conversation name for notifications
+      let conversationName = "";
+      if (conversation.isGroup) {
+        conversationName = conversation.groupName;
+      } else {
+        const otherUserId = conversation.participants.find(pid => pid.toString() !== socket.user._id.toString());
+        const otherUser = otherUserId ? await User.findById(otherUserId).select("username") : null;
+        conversationName = otherUser?.username || "Unknown";
+      }
+      populatedMessage.conversationName = conversationName;
+
+      conversation.lastMessage = message._id;
+      await conversation.save();
+      io.to(conversationId.toString()).emit("newMessage", populatedMessage);
+      callback({ success: true, message: populatedMessage });
+    } catch (error) {
+      console.error("sendFileMessage error:", error);
+      callback({ error: error.message });
+    }
+  });
+
   socket.on("typing", (conversationId) => {
-    console.log(`⌨️ ${socket.user.username} typing in ${conversationId}`);
     socket.to(conversationId).emit("userTyping", {
       userId: socket.user._id,
       username: socket.user.username,
-      conversationId, // ✅ ADDED
+      conversationId,
     });
   });
-
   socket.on("stopTyping", (conversationId) => {
     socket.to(conversationId).emit("userStopTyping", {
       userId: socket.user._id,
-      conversationId, // ✅ ADDED
+      conversationId,
     });
   });
 
-  // Disconnect
   socket.on("disconnect", async () => {
     console.log(`User disconnected: ${socket.user.username}`);
     await User.findByIdAndUpdate(socket.user._id, { isOnline: false }).exec();
-    // Broadcast offline status
     io.emit("userStatus", {
       userId: socket.user._id.toString(),
       isOnline: false,
@@ -200,7 +194,6 @@ io.on("connection", async (socket) => {
   });
 });
 
-// Listen on the 'server' instance, not 'app'
 const listenPort = PORT || 5000;
 server.listen(listenPort, () => {
   console.log(`Server running on http://localhost:${listenPort}`);
