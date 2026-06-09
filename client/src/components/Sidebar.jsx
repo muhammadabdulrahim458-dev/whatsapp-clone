@@ -28,6 +28,21 @@ import {
 
 const API = "http://localhost:5000";
 
+/*
+  IMPORTANT: For the sidebar to not hide behind the chat area,
+  ensure your parent layout (e.g., the main chat page) uses
+  a flex row with a fixed width for this sidebar, like:
+  
+  <div className="flex h-screen">
+    <div className="w-80 flex-shrink-0">
+      <Sidebar ... />
+    </div>
+    <div className="flex-1">
+      <ChatArea ... />
+    </div>
+  </div>
+*/
+
 const Sidebar = ({
   conversations,
   activeConversation,
@@ -201,7 +216,11 @@ const Sidebar = ({
 
   return (
     <>
-      <div className="w-full h-full flex flex-col bg-card">
+      {/* 
+        Fixed sidebar: high z-index, solid background, and shadow 
+        to ensure it stays above the chat area wallpaper.
+      */}
+      <div className="relative z-20 w-full h-full flex flex-col bg-card shadow-xl border-r border-border/60">
         {/* Sidebar Header */}
         <div className="flex items-center justify-between p-4 bg-card border-b border-border">
           <div className="flex items-center gap-3">

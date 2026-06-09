@@ -64,20 +64,18 @@ const SENTIMENT = {
   positive: {
     emoji: "😊",
     label: "Positive",
-    // Rich emerald — legible text on the tinted bg
     bubble:
-      "bg-emerald-100 text-emerald-950 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-50 dark:border-emerald-700",
+      "bg-emerald-100 text-emerald-950 border border-emerald-300 dark:bg-emerald-900/60 dark:text-emerald-50 dark:border-emerald-700",
     dot: "bg-emerald-500",
-    glow: "shadow-emerald-200/60 dark:shadow-emerald-900/60",
+    glow: "shadow-emerald-200/50 dark:shadow-emerald-900/40",
   },
   negative: {
     emoji: "😔",
     label: "Negative",
-    // Warm rose — unmistakably different from the neutral card
     bubble:
-      "bg-rose-100 text-rose-950 border border-rose-300 dark:bg-rose-900/50 dark:text-rose-50 dark:border-rose-700",
+      "bg-rose-100 text-rose-950 border border-rose-300 dark:bg-rose-900/60 dark:text-rose-50 dark:border-rose-700",
     dot: "bg-rose-500",
-    glow: "shadow-rose-200/60 dark:shadow-rose-900/60",
+    glow: "shadow-rose-200/50 dark:shadow-rose-900/40",
   },
   neutral: {
     emoji: "😐",
@@ -89,9 +87,9 @@ const SENTIMENT = {
 };
 
 /* ═══════════════════════════════════════════════
-   FIXED TILED BACKGROUND
-   Rendered once as a fixed layer so it covers the
-   viewport regardless of scroll position.
+   IMPROVED CHAT BACKGROUND
+   Subtle gradient + delicate diagonal pattern.
+   Fixed layer, never scrolls, works in any theme.
 ═══════════════════════════════════════════════ */
 const ChatWallpaper = () => (
   <div
@@ -103,48 +101,43 @@ const ChatWallpaper = () => (
       pointerEvents: "none",
     }}
   >
-    {/* Base tone that adapts to the theme */}
-    <div className="absolute inset-0 bg-muted/30" />
+    {/* Base gradient that respects theme */}
+    <div className="absolute inset-0 bg-gradient-to-br from-background via-background/95 to-muted/30" />
 
-    {/* SVG tile pattern */}
+    {/* Diagonal line pattern – minimal & modern */}
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="absolute inset-0 w-full h-full opacity-[0.045] text-foreground"
+      className="absolute inset-0 w-full h-full opacity-[0.03] text-foreground"
     >
       <defs>
         <pattern
-          id="wallpaper-tile"
+          id="diagonal-lines"
           x="0"
           y="0"
-          width="80"
-          height="80"
+          width="60"
+          height="60"
           patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
         >
-          {/* large bubble */}
-          <path
-            d="M8 6 Q8 2 12 2 L36 2 Q40 2 40 6 L40 22 Q40 26 36 26 L22 26 L16 32 L16 26 Q8 26 8 22 Z"
-            fill="currentColor"
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="60"
+            stroke="currentColor"
+            strokeWidth="1.2"
           />
-          {/* small reply bubble */}
-          <path
-            d="M46 46 Q46 43 49 43 L68 43 Q71 43 71 46 L71 56 Q71 59 68 59 L58 59 L55 62 L55 59 Q46 59 46 56 Z"
-            fill="currentColor"
-          />
-          {/* decorative dots */}
-          <circle cx="6" cy="60" r="2.5" fill="currentColor" />
-          <circle cx="72" cy="14" r="2" fill="currentColor" />
-          <circle cx="44" cy="36" r="1.5" fill="currentColor" />
         </pattern>
       </defs>
-      <rect width="100%" height="100%" fill="url(#wallpaper-tile)" />
+      <rect width="100%" height="100%" fill="url(#diagonal-lines)" />
     </svg>
 
-    {/* Subtle vertical gradient vignette for depth */}
+    {/* Soft vignette for depth */}
     <div
       className="absolute inset-0"
       style={{
         background:
-          "linear-gradient(to bottom, transparent 60%, hsl(var(--background)/0.08) 100%)",
+          "radial-gradient(circle at 50% 30%, transparent 40%, hsl(var(--background)/0.15) 100%)",
       }}
     />
   </div>
@@ -157,7 +150,6 @@ const ChatWallpaper = () => (
 ═══════════════════════════════════════════════ */
 const SentimentBadge = ({ mood }) => {
   const cfg = SENTIMENT[mood] ?? SENTIMENT.neutral;
-  // Don't show badge for own messages or unknown sentiment
   if (!mood || mood === "neutral") return null;
   return (
     <span
@@ -445,7 +437,7 @@ const ChatArea = ({
       <div className="flex-1 h-full flex items-center justify-center relative overflow-hidden">
         <ChatWallpaper />
         <div className="relative z-10 text-center space-y-4 px-6">
-          <div className="w-20 h-20 rounded-full bg-card border border-border flex items-center justify-center mx-auto shadow-lg">
+          <div className="w-20 h-20 rounded-full bg-card/90 backdrop-blur-sm border border-border flex items-center justify-center mx-auto shadow-lg">
             <MessageCircle
               className="w-9 h-9 text-muted-foreground"
               strokeWidth={1.5}
@@ -573,11 +565,11 @@ const ChatArea = ({
   ══════════════════════════════════════════════ */
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden relative">
-      {/* Fixed wallpaper — renders behind everything, never scrolls */}
+      {/* Fixed wallpaper – elegant new design */}
       <ChatWallpaper />
 
       {/* ── Header ── */}
-      <div className="relative z-10 bg-card/90 backdrop-blur-xl border-b border-border px-4 py-3 flex items-center justify-between shadow-sm">
+      <div className="relative z-10 bg-card/80 backdrop-blur-lg border-b border-border/60 px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative flex-shrink-0">
             <HeaderAvatar />
@@ -616,7 +608,7 @@ const ChatArea = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full h-9 w-9 text-muted-foreground"
+                  className="rounded-full h-9 w-9 text-muted-foreground hover:bg-muted/80"
                 >
                   <MoreVertical className="h-4 w-4" />
                 </Button>
@@ -656,7 +648,7 @@ const ChatArea = ({
               variant="ghost"
               size="icon"
               onClick={() => setShowGroupInfo(true)}
-              className="rounded-full h-9 w-9 text-muted-foreground"
+              className="rounded-full h-9 w-9 text-muted-foreground hover:bg-muted/80"
             >
               <Info className="h-4 w-4" />
             </Button>
@@ -665,15 +657,8 @@ const ChatArea = ({
       </div>
 
       {/* ── Messages scroll area ── */}
-      {/*
-        Key layout decision:
-        - The outer div is z-10 + relative so content sits above the fixed wallpaper
-        - overflow-y-auto + flex-1 gives the scrollable column
-        - No background here — wallpaper shows through
-      */}
       <div className="relative z-10 flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6 w-full space-y-0.5">
-          {/* Empty state */}
           {messages.length === 0 && (
             <div className="flex justify-center py-16">
               <div className="bg-card/80 backdrop-blur-sm border border-border/60 rounded-2xl px-6 py-4 text-center shadow">
@@ -684,7 +669,6 @@ const ChatArea = ({
             </div>
           )}
 
-          {/* Messages — chronological, oldest at top, newest at bottom */}
           {messages.map((msg, idx) => {
             const isMine = msg.sender._id === user._id;
             const rawMood = msg.sentiment?.label?.toLowerCase() || "neutral";
@@ -712,15 +696,12 @@ const ChatArea = ({
               nextMsg.sender._id !== msg.sender._id ||
               !isSameDay(msg.createdAt, nextMsg.createdAt);
 
-            /* Bubble colour — own messages always use primary,
-               received messages reflect sentiment clearly */
             const bubbleStyle = isMine
               ? "bg-primary text-primary-foreground shadow-sm"
               : sentiment.bubble +
                 " shadow-sm " +
                 (mood !== "neutral" ? sentiment.glow + " shadow-md" : "");
 
-            /* WhatsApp‑style corner rounding based on group position */
             const rounding = isMine
               ? [
                   isFirstInGroup && !isLastInGroup
@@ -751,7 +732,6 @@ const ChatArea = ({
                   .filter(Boolean)
                   .join(" ");
 
-            /* Action dropdown — shared by sent & received */
             const ActionMenu = (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -791,7 +771,6 @@ const ChatArea = ({
 
             return (
               <div key={msg._id}>
-                {/* ── Date separator ── */}
                 {showDateLabel && (
                   <div className="flex items-center justify-center my-5">
                     <span className="bg-card/85 backdrop-blur-sm border border-border/60 text-muted-foreground text-[11px] font-semibold tracking-wide px-3.5 py-1 rounded-full shadow-sm uppercase">
@@ -800,13 +779,11 @@ const ChatArea = ({
                   </div>
                 )}
 
-                {/* ── Message row ── */}
                 <div
                   className={`flex items-end gap-2 mb-0.5 group/msg ${
                     isMine ? "justify-end" : "justify-start"
                   }`}
                 >
-                  {/* Avatar slot (received only) */}
                   {!isMine && (
                     <div className="w-7 flex-shrink-0 self-end mb-0.5">
                       {isLastInGroup ? (
@@ -826,10 +803,8 @@ const ChatArea = ({
                     </div>
                   )}
 
-                  {/* Action menu — left of bubble for received */}
                   {!isMine && ActionMenu}
 
-                  {/* ── Bubble ── */}
                   <div
                     className={`
                       relative max-w-[70%] px-3.5 py-2.5 group/bubble
@@ -837,19 +812,16 @@ const ChatArea = ({
                     `}
                     style={{ wordBreak: "break-word" }}
                   >
-                    {/* Sentiment floating badge on hover (received only, non-neutral) */}
                     {!isMine && mood !== "neutral" && (
                       <SentimentBadge mood={mood} />
                     )}
 
-                    {/* Sender name in group chats */}
                     {!isMine && isGroup && isFirstInGroup && (
                       <p className="text-[11px] font-bold text-primary mb-1 leading-none">
                         {sender.username}
                       </p>
                     )}
 
-                    {/* Forwarded label */}
                     {msg.isForwarded && (
                       <div className="flex items-center gap-1 text-[10px] opacity-60 mb-1.5 italic">
                         <CornerUpRight className="w-2.5 h-2.5" />
@@ -857,7 +829,6 @@ const ChatArea = ({
                       </div>
                     )}
 
-                    {/* Message content */}
                     {msg.fileUrl ? (
                       renderFileMessage(msg)
                     ) : (
@@ -866,13 +837,11 @@ const ChatArea = ({
                       </p>
                     )}
 
-                    {/* Time + read tick */}
                     <div
                       className={`flex items-center justify-end gap-1 mt-1.5 ${
                         isMine ? "opacity-70" : "opacity-50"
                       }`}
                     >
-                      {/* Sentiment emoji inline for received messages */}
                       {!isMine && mood !== "neutral" && (
                         <span className="text-[11px] leading-none">
                           {sentiment.emoji}
@@ -888,14 +857,12 @@ const ChatArea = ({
                     </div>
                   </div>
 
-                  {/* Action menu — right of bubble for sent */}
                   {isMine && ActionMenu}
                 </div>
               </div>
             );
           })}
 
-          {/* ── Typing indicator ── */}
           {typingUser && (
             <div className="flex items-end gap-2 justify-start mt-3">
               <Avatar className="w-7 h-7 flex-shrink-0">
@@ -915,240 +882,192 @@ const ChatArea = ({
               </div>
             </div>
           )}
-
-          {/* Scroll anchor */}
           <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* ── Input bar ── */}
-      <div className="relative z-10 bg-card/90 backdrop-blur-xl border-t border-border px-3 py-2.5">
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-end gap-2 max-w-3xl mx-auto"
-        >
-          <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="rounded-full text-muted-foreground hover:text-foreground h-9 w-9 flex-shrink-0 mb-0.5"
+      {/* ── Input area ── */}
+      <div className="relative z-10 p-4 border-t border-border/60 bg-card/80 backdrop-blur-lg">
+        <form onSubmit={handleSubmit} className="flex items-end gap-2">
+          <div className="flex gap-1 items-center">
+            <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full h-9 w-9 text-muted-foreground hover:bg-muted/80"
+                >
+                  <Smile className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                className="w-auto p-0 border-border bg-popover"
               >
-                <Smile className="w-5 h-5" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="start"
-              className="p-0 border-none bg-transparent shadow-none w-auto mb-2"
+                <EmojiPicker onEmojiClick={onEmojiClick} />
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-full h-9 w-9 text-muted-foreground hover:bg-muted/80"
             >
-              <EmojiPicker
-                onEmojiClick={onEmojiClick}
-                previewConfig={{ showPreview: false }}
-              />
-            </PopoverContent>
-          </Popover>
+              <Paperclip className="h-5 w-5" />
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="rounded-full text-muted-foreground hover:text-foreground h-9 w-9 flex-shrink-0 mb-0.5"
-          >
-            <Paperclip className="w-4 h-4" />
-          </Button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          <Input
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Message…"
-            className="flex-1 rounded-2xl bg-muted/50 border-border/60 focus-visible:ring-1 focus-visible:ring-primary px-4 h-9 text-sm shadow-none"
-          />
+          <div className="flex-1 bg-muted/50 rounded-2xl border border-border/60 focus-within:ring-1 focus-within:ring-primary transition-all">
+            <Textarea
+              placeholder="Type a message..."
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              className="min-h-[2.5rem] max-h-32 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-4 py-2 text-sm"
+              rows={1}
+            />
+          </div>
 
           <Button
             type="submit"
             size="icon"
             disabled={!input.trim()}
-            className="rounded-full h-9 w-9 flex-shrink-0 mb-0.5 shadow-sm disabled:opacity-40 transition-all"
+            className="rounded-full h-9 w-9 bg-primary hover:bg-primary/90 transition-all"
           >
-            <SendHorizontal className="w-4 h-4" />
+            <SendHorizontal className="h-4 w-4" />
           </Button>
         </form>
       </div>
 
-      {/* ── File Upload Modal ── */}
-      <Dialog
-        open={showFileModal}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowFileModal(false);
-            setSelectedFile(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-sm">
+      {/* Group Info Panel Modal */}
+      {showGroupInfo && (
+        <GroupInfoPanel
+          conversation={conversation}
+          onClose={() => setShowGroupInfo(false)}
+          socket={socket}
+        />
+      )}
+
+      {/* File upload modal */}
+      <Dialog open={showFileModal} onOpenChange={setShowFileModal}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Send File</DialogTitle>
-            <DialogDescription className="truncate text-xs">
-              {selectedFile?.name}
+            <DialogDescription>
+              Add a caption (optional) and send the file.
             </DialogDescription>
           </DialogHeader>
-          {selectedFile?.type.startsWith("image/") && (
-            <div className="rounded-xl overflow-hidden border border-border/60 bg-muted/20">
-              <img
-                src={URL.createObjectURL(selectedFile)}
-                alt="preview"
-                className="w-full max-h-48 object-contain"
-              />
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+              <FileText className="w-8 h-8 text-muted-foreground" />
+              <span className="text-sm font-medium truncate">
+                {selectedFile?.name}
+              </span>
             </div>
-          )}
-          <Textarea
-            className="resize-none text-sm"
-            rows={2}
-            placeholder="Add a caption…"
-            value={fileCaption}
-            onChange={(e) => setFileCaption(e.target.value)}
-          />
-          <DialogFooter className="gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setShowFileModal(false);
-                setSelectedFile(null);
-              }}
-            >
+            <Textarea
+              placeholder="Caption (optional)"
+              value={fileCaption}
+              onChange={(e) => setFileCaption(e.target.value)}
+              className="resize-none"
+              rows={2}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowFileModal(false)}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              onClick={uploadFileWithCaption}
-              disabled={uploading}
-            >
-              {uploading ? "Uploading…" : "Send"}
+            <Button onClick={uploadFileWithCaption} disabled={uploading}>
+              {uploading ? "Sending..." : "Send"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Forward Modal ── */}
+      {/* Forward modal */}
       <Dialog open={showForwardModal} onOpenChange={setShowForwardModal}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Forward to…</DialogTitle>
-            <DialogDescription>Choose a conversation</DialogDescription>
+            <DialogTitle>Forward Message</DialogTitle>
+            <DialogDescription>
+              Select a conversation to forward this message to.
+            </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-64 rounded-xl border border-border/60 my-1">
-            <div className="divide-y divide-border/40">
-              {conversationsList.length === 0 ? (
-                <p className="text-center text-sm text-muted-foreground p-6">
-                  No other conversations
-                </p>
-              ) : (
-                conversationsList.map((conv) => {
-                  const tu = conv.isGroup
-                    ? null
-                    : conv.participants.find((p) => p._id !== user._id);
-                  const name = conv.isGroup
-                    ? conv.groupName
-                    : tu?.username || "Unknown";
-                  const src = tu
-                    ? getAvatarUrl(tu) || uiAvatar(name)
-                    : uiAvatar(name);
-                  return (
-                    <div
-                      key={conv._id}
-                      onClick={() => handleForward(conv._id)}
-                      className="flex items-center gap-3 p-3 hover:bg-muted/60 cursor-pointer transition-colors group"
-                    >
-                      <Avatar className="w-8 h-8 flex-shrink-0">
-                        <AvatarImage src={src} />
-                        <AvatarFallback className="text-[10px]">
-                          {name.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm font-medium truncate flex-1">
-                        {name}
-                      </span>
-                      <CornerUpRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ScrollArea className="h-72 pr-4">
+            <div className="space-y-2">
+              {conversationsList.map((conv) => {
+                const isGroupConv = conv.isGroup;
+                const convName = isGroupConv
+                  ? conv.groupName
+                  : conv.participants.find((p) => p._id !== user._id)
+                      ?.username || "Unknown";
+                return (
+                  <div
+                    key={conv._id}
+                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 cursor-pointer transition"
+                    onClick={() => handleForward(conv._id)}
+                  >
+                    <Avatar className="w-10 h-10">
+                      <AvatarImage
+                        src={
+                          isGroupConv
+                            ? uiAvatar(conv.groupName)
+                            : getAvatarUrl(
+                                conv.participants.find(
+                                  (p) => p._id !== user._id,
+                                ),
+                              ) || uiAvatar(convName)
+                        }
+                      />
+                      <AvatarFallback>
+                        {convName.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium text-sm">{convName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {isGroupConv ? "Group" : "Direct Message"}
+                      </p>
                     </div>
-                  );
-                })
+                  </div>
+                );
+              })}
+              {conversationsList.length === 0 && (
+                <p className="text-center text-muted-foreground text-sm py-8">
+                  No other conversations found.
+                </p>
               )}
             </div>
           </ScrollArea>
-          <DialogFooter>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowForwardModal(false)}
-            >
-              Cancel
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Media Preview ── */}
-      {previewFile && (
-        <div
-          className="fixed inset-0 bg-black/92 backdrop-blur-md flex flex-col items-center justify-center z-50 animate-in fade-in duration-200"
-          onClick={() => setPreviewFile(null)}
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setPreviewFile(null)}
-            className="absolute top-4 right-4 text-white hover:bg-white/10 rounded-full h-10 w-10"
-          >
-            <X className="w-5 h-5" />
-          </Button>
-          <div
-            className="max-w-4xl max-h-[80vh] px-4 flex items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {previewFile.type === "image" ? (
-              <img
-                src={previewFile.url}
-                alt={previewFile.name}
-                className="max-w-full max-h-[78vh] object-contain rounded-xl shadow-2xl"
-              />
-            ) : (
-              <video
-                controls
-                autoPlay
-                className="max-w-full max-h-[78vh] rounded-xl shadow-2xl"
-              >
-                <source src={previewFile.url} />
-              </video>
-            )}
-          </div>
-          <div className="mt-4" onClick={(e) => e.stopPropagation()}>
-            <Button
-              asChild
-              size="sm"
-              variant="secondary"
-              className="rounded-full px-5"
-            >
-              <a href={previewFile.url} download={previewFile.name}>
-                <Download className="w-4 h-4 mr-2" /> Download
-              </a>
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Preview modal for images */}
+      <Dialog open={!!previewFile} onOpenChange={() => setPreviewFile(null)}>
+        <DialogContent className="max-w-4xl p-0 bg-black/90 border-none">
+          {previewFile?.type === "image" ? (
+            <img
+              src={previewFile.url}
+              alt={previewFile.name}
+              className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
+            />
+          ) : (
+            <video controls autoPlay className="w-full max-h-[80vh] rounded-lg">
+              <source src={previewFile?.url} />
+            </video>
+          )}
+        </DialogContent>
+      </Dialog>
 
-      {/* ── Confirm Dialog ── */}
+      {/* Confirmation modal */}
       <AlertDialog
         open={confirmModal.show}
         onOpenChange={(open) =>
@@ -1165,24 +1084,12 @@ const ChatArea = ({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => confirmModal.onConfirm?.()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Confirm
+            <AlertDialogAction onClick={confirmModal.onConfirm}>
+              Continue
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* ── Group Info Panel ── */}
-      {showGroupInfo && (
-        <GroupInfoPanel
-          conversation={conversation}
-          onClose={() => setShowGroupInfo(false)}
-          onlineUsers={onlineUsers}
-        />
-      )}
     </div>
   );
 };
